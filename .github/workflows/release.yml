@@ -4,7 +4,13 @@ on:
   push:
     tags:
       - "v*"
+  # 👇 ম্যানুয়াল রানের জন্য ইনপুট ফিল্ড যুক্ত করা হয়েছে
   workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'ম্যানুয়াল রানের জন্য ভার্সন ট্যাগ লিখুন (যেমন: v1.0.0)'
+        required: true
+        default: 'v1.0.0'
 
 jobs:
   publish-tauri:
@@ -26,13 +32,27 @@ jobs:
           - platform: windows-latest
             args: ""
             rust-target: ""
+          # Termux Native GUI (XFCE4) এর জন্য স্পেশাল ব্লক
+          - platform: ubuntu-latest
+            is-termux-native-gui: true
 
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
+      # ট্যাগ নেম সেট করার জন্য ট্রিক (পুশ এবং ম্যানুয়াল রান দুটোর জন্যই কাজ করবে)
+      - name: Set Release Tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "RELEASE_TAG=${{ github.event.inputs.version_tag }}" >> $GITHUB_ENV
+          else
+            echo "RELEASE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
+          fi
+
+      # সাধারণ লিনাক্স বিল্ড (টার্মাক্স ছাড়া বাকিগুলোর জন্য)
       - name: Install Linux build dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-22.04' && !matrix.is-termux-native-gui
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -42,45 +62,25 @@ jobs:
             libssl-dev \
             patchelf
 
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-target }}
-
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: ./src-tauri -> target
-          key: ${{ matrix.platform }}-${{ matrix.rust-target }}
-
-      - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Write Apple API key to disk
-        if: startsWith(matrix.platform, 'macos')
-        shell: bash
-        env:
-          KEY_CONTENT: ${{ secrets.APPLE_API_KEY_PATH }}
+      # Termux GUI বিল্ড প্রসেস (Docker দিয়ে)
+      - name: Build for Termux Native X11/XFCE4
+        if: matrix.is-termux-native-gui
         run: |
-          mkdir -p "$HOME/private_keys"
-          printf '%s' "$KEY_CONTENT" > "$HOME/private_keys/AuthKey.p8"
-          echo "APPLE_API_KEY_PATH=$HOME/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace termux/termux-docker:aarch64 bash -c "
+            pkg update -y
+            pkg install -y x11-repo
+            pkg install -y build-essential nodejs-lts pnpm rust binutils libwebkit2gtk-4.1 libgtk3 librsvg openssl-tool
+            pnpm install --frozen-lockfile
+            pnpm tauri build
+          "
 
+      # সাধারণ প্ল্যাটফর্মগুলোর জন্য Tauri Action
       - uses: tauri-apps/tauri-action@v0
+        if: !matrix.is-termux-native-gui
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -88,9 +88,22 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Terax ${{ github.ref_name }}"
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: "Terax ${{ env.RELEASE_TAG }}"
           releaseBody: "See the assets to download and install. Auto-update is built in."
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      # টার্মাক্স GUI এর বাইনারি রিলিজ অ্যাসেটে আপলোড করার স্টেপ
+      - name: Upload Termux Native Binary to Release
+        if: matrix.is-termux-native-gui
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/appimage/*.AppImage
+          draft: true
+          tag_name: ${{ env.RELEASE_TAG }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
