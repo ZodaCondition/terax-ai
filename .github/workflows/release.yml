@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  # 👇 ম্যানুয়াল রানের জন্য ইনপুট ফিল্ড যুক্ত করা হয়েছে
   workflow_dispatch:
     inputs:
       version_tag:
@@ -40,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ট্যাগ নেম সেট করার জন্য ট্রিক (পুশ এবং ম্যানুয়াল রান দুটোর জন্যই কাজ করবে)
+      # ট্যাগ নেম সেট করার জন্য ট্রিক
       - name: Set Release Tag
         shell: bash
         run: |
@@ -50,9 +49,9 @@ jobs:
             echo "RELEASE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
           fi
 
-      # সাধারণ লিনাক্স বিল্ড (টার্মাক্স ছাড়া বাকিগুলোর জন্য)
+      # সাধারণ লিনাক্স বিল্ড (সংশোধিত কন্ডিশন)
       - name: Install Linux build dependencies
-        if: matrix.platform == 'ubuntu-22.04' && !matrix.is-termux-native-gui
+        if: ${{ matrix.platform == 'ubuntu-22.04' && !matrix.is-termux-native-gui }}
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -64,7 +63,7 @@ jobs:
 
       # Termux GUI বিল্ড প্রসেস (Docker দিয়ে)
       - name: Build for Termux Native X11/XFCE4
-        if: matrix.is-termux-native-gui
+        if: ${{ matrix.is-termux-native-gui }}
         run: |
           docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace termux/termux-docker:aarch64 bash -c "
             pkg update -y
@@ -74,9 +73,9 @@ jobs:
             pnpm tauri build
           "
 
-      # সাধারণ প্ল্যাটফর্মগুলোর জন্য Tauri Action
+      # সাধারণ প্ল্যাটফর্মগুলোর জন্য Tauri Action (সংশোধিত কন্ডিশন)
       - uses: tauri-apps/tauri-action@v0
-        if: !matrix.is-termux-native-gui
+        if: ${{ !matrix.is-termux-native-gui }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -97,7 +96,7 @@ jobs:
 
       # টার্মাক্স GUI এর বাইনারি রিলিজ অ্যাসেটে আপলোড করার স্টেপ
       - name: Upload Termux Native Binary to Release
-        if: matrix.is-termux-native-gui
+        if: ${{ matrix.is-termux-native-gui }}
         uses: softprops/action-gh-release@v2
         with:
           files: |
