@@ -39,24 +39,32 @@ jobs:
       - name: Build for Termux Native X11/XFCE4
         run: |
           docker run --rm --platform linux/arm64 -v ${{ github.workspace }}:/workspace -w /workspace termux/termux-docker:aarch64 bash -c "
-            # ১. প্রম্পট এড়াতে এবং মিরর ফিক্স করতে এনভায়রনমেন্ট ভ্যারিয়েবল সেটআপ
             export DEBIAN_FRONTEND=noninteractive
             
-            # ক্লাউডফেয়ারের স্টেবল অফিশিয়াল মিরর সেটআপ (যাতে মিরর সিলেকশনে টাইম নষ্ট না হয়)
+            # টার্মাক্স স্ক্রিপ্টের ইন্টারনাল এরর এড়াতে এবং মিরর ফিক্স করতে সরাসরি সোর্স ফাইল রাইট করা
+            # এটি মূল রেপো এবং x11 রেপো দুটোকেই সরাসরি ক্লাউডফেয়ার মিরর থেকে ইনজেক্ট করবে (টার্মাক্স হুক স্ক্রিপ্ট বাইপাস হবে)
+            mkdir -p /data/data/com.termux/files/usr/etc/apt/sources.list.d
             echo 'deb https://packages-cf.termux.dev/apt/termux-main stable main' > /data/data/com.termux/files/usr/etc/apt/sources.list
+            echo 'deb https://packages-cf.termux.dev/apt/termux-x11 x11 main' > /data/data/com.termux/files/usr/etc/apt/sources.list.d/x11.list
             
-            # ২. প্রম্পট অটো-এক্সেপ্ট (force-confold) করে প্যাকেজ আপডেট ও ইনস্টল
-            apt-get update -y
-            apt-get upgrade -y -o Dpkg::Options::='--force-confold'
+            # কোনো প্রম্পট বা কনফিগারেশন পপ-আপ ছাড়াই ফোর্স আপডেট
+            apt-get update -y -o Dpkg::Options::='--force-confold'
             
-            # ৩. এক্স১১ রেপো এবং মূল বিল্ড টুলস ইনস্টল
-            pkg install -y x11-repo
-            pkg install -y -o Dpkg::Options::='--force-confold' build-essential nodejs-lts rust binutils libwebkit2gtk-4.1 libgtk3 librsvg openssl-tool
+            # মূল বিল্ড টুলস এবং এক্স১১ জিইউআই প্যাকেজগুলো একসাথে ইনস্টল (কোনো x11-repo প্যাকেজের ওপর নির্ভর না করে)
+            apt-get install -y -o Dpkg::Options::='--force-confold' \
+              build-essential \
+              nodejs-lts \
+              rust \
+              binutils \
+              libwebkit2gtk-4.1 \
+              libgtk3 \
+              librsvg \
+              openssl-tool
             
-            # ৪. pnpm গ্লোবালি ইনস্টল করা (pkg-তে pnpm মাঝে মাঝে ঝামেলা করে)
+            # npm দিয়ে pnpm গ্লোবালি ইনস্টল
             npm install -g pnpm
             
-            # ৫. ফ্রন্টএন্ড এবং Tauri অ্যাপ কম্পাইল
+            # ফ্রন্টএন্ড এবং Tauri অ্যাপ কম্পাইল
             pnpm install --frozen-lockfile
             pnpm tauri build
           "
