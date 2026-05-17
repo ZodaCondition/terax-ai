@@ -1,4 +1,4 @@
-name: Release
+name: Release Termux
 
 on:
   push:
@@ -12,30 +12,10 @@ on:
         default: 'v1.0.0'
 
 jobs:
-  publish-tauri:
+  build-termux:
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            args: --target aarch64-apple-darwin
-            rust-target: aarch64-apple-darwin
-          - platform: macos-latest
-            args: --target x86_64-apple-darwin
-            rust-target: x86_64-apple-darwin
-          - platform: ubuntu-22.04
-            args: ""
-            rust-target: ""
-          - platform: windows-latest
-            args: ""
-            rust-target: ""
-          # Termux Native GUI (XFCE4) এর জন্য স্পেশাল ব্লক
-          - platform: ubuntu-latest
-            is-termux-native-gui: true
-
-    runs-on: ${{ matrix.platform }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -49,21 +29,8 @@ jobs:
             echo "RELEASE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
           fi
 
-      # সাধারণ লিনাক্স বিল্ড (সংশোধিত কন্ডিশন)
-      - name: Install Linux build dependencies
-        if: ${{ matrix.platform == 'ubuntu-22.04' && !matrix.is-termux-native-gui }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            patchelf
-
       # Termux GUI বিল্ড প্রসেস (Docker দিয়ে)
       - name: Build for Termux Native X11/XFCE4
-        if: ${{ matrix.is-termux-native-gui }}
         run: |
           docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace termux/termux-docker:aarch64 bash -c "
             pkg update -y
@@ -73,36 +40,18 @@ jobs:
             pnpm tauri build
           "
 
-      # সাধারণ প্ল্যাটফর্মগুলোর জন্য Tauri Action (সংশোধিত কন্ডিশন)
-      - uses: tauri-apps/tauri-action@v0
-        if: ${{ !matrix.is-termux-native-gui }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-        with:
-          tagName: ${{ env.RELEASE_TAG }}
-          releaseName: "Terax ${{ env.RELEASE_TAG }}"
-          releaseBody: "See the assets to download and install. Auto-update is built in."
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
-
-      # টার্মাক্স GUI এর বাইনারি রিলিজ অ্যাসেটে আপলোড করার স্টেপ
+      # তৈরি হওয়া বাইনারি রিলিজ অ্যাসেটে আপলোড করার স্টেপ
       - name: Upload Termux Native Binary to Release
-        if: ${{ matrix.is-termux-native-gui }}
         uses: softprops/action-gh-release@v2
         with:
           files: |
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/terax
+            src-tauri/target/release/terax-ai
           draft: true
           tag_name: ${{ env.RELEASE_TAG }}
+          name: "Terax Termux ${{ env.RELEASE_TAG }}"
+          body: "Termux Native XFCE4/X11 এর জন্য স্পেশাল বিল্ড।"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
