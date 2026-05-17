@@ -29,19 +29,34 @@ jobs:
             echo "RELEASE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
           fi
 
-      # 👇 এই স্টেপটি ARM64 ইমেজকে x86_64 হোস্টে রান করার অনুমতি দেবে (QEMU এমুলেশন)
+      # QEMU এমুলেশন সেটআপ (ARM64 এর জন্য)
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      # Termux GUI বিল্ড প্রসেস (Docker + QEMU এমুলেশন সহ)
+      # টার্মাক্স কন্টেইনারের ভেতরে ফোর্সড নন-ইন্টারঅ্যাক্টিভ বিল্ড
       - name: Build for Termux Native X11/XFCE4
         run: |
           docker run --rm --platform linux/arm64 -v ${{ github.workspace }}:/workspace -w /workspace termux/termux-docker:aarch64 bash -c "
-            pkg update -y
+            # ১. প্রম্পট এড়াতে এবং মিরর ফিক্স করতে এনভায়রনমেন্ট ভ্যারিয়েবল সেটআপ
+            export DEBIAN_FRONTEND=noninteractive
+            
+            # ক্লাউডফেয়ারের স্টেবল অফিশিয়াল মিরর সেটআপ (যাতে মিরর সিলেকশনে টাইম নষ্ট না হয়)
+            echo 'deb https://packages-cf.termux.dev/apt/termux-main stable main' > /data/data/com.termux/files/usr/etc/apt/sources.list
+            
+            # ২. প্রম্পট অটো-এক্সেপ্ট (force-confold) করে প্যাকেজ আপডেট ও ইনস্টল
+            apt-get update -y
+            apt-get upgrade -y -o Dpkg::Options::='--force-confold'
+            
+            # ৩. এক্স১১ রেপো এবং মূল বিল্ড টুলস ইনস্টল
             pkg install -y x11-repo
-            pkg install -y build-essential nodejs-lts pnpm rust binutils libwebkit2gtk-4.1 libgtk3 librsvg openssl-tool
+            pkg install -y -o Dpkg::Options::='--force-confold' build-essential nodejs-lts rust binutils libwebkit2gtk-4.1 libgtk3 librsvg openssl-tool
+            
+            # ৪. pnpm গ্লোবালি ইনস্টল করা (pkg-তে pnpm মাঝে মাঝে ঝামেলা করে)
+            npm install -g pnpm
+            
+            # ৫. ফ্রন্টএন্ড এবং Tauri অ্যাপ কম্পাইল
             pnpm install --frozen-lockfile
             pnpm tauri build
           "
